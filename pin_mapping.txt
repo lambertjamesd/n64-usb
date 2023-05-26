@@ -1,0 +1,31 @@
+
+PORTC
+    0 USB-A0
+    1 B0
+    2 B1
+    3 B2
+
+    4 SDA
+    5 SDL
+
+PORTB
+    0 USB-D0
+    1 USB-D1
+    2 USB-D2
+    3 USB-D3
+
+    4 USB-D4
+    5 USB-D5
+    6 disconnected
+    7 disconnected
+
+PORTD
+    0 RSX
+    1 TSX
+    2 N64
+    3 USB-INT
+
+    4 USB-RD
+    5 USB-WR
+    6 USB-D6
+    7 USB-D7
