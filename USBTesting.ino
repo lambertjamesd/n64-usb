@@ -51,10 +51,11 @@ void usbWriteByte(uint8_t byte, bool isData) {
 
   // configure the output pins 
   DDRC = ((~byte & 0xE0) >> 5) | (DDRC & 0xF8);
+  // DDRC |= 0x07;
   DDRB = (~byte) & 0x1F;
 
-  PORTC = ((byte & 0xE0) > 5) | (PORTC & 0xFB);
-  PORTB = byte & 0x1F;
+  PORTC &= 0xF8;
+  PORTB = 0;
 
   delayMicroseconds(2);
 
@@ -65,6 +66,10 @@ void usbWriteByte(uint8_t byte, bool isData) {
   asm volatile ("nop");
   asm volatile ("nop");
   DDRD &= ~USB_WR;
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
 
   // reconfigure inputs
   PORTB = 0;
@@ -89,22 +94,6 @@ uint8_t usbReadByte() {
 
   // read data
   uint8_t result = (PINB & 0x1F) | ((PINC & 0x07) << 5);
-  // uint8_t result = digitalRead(A2);
-  // result <<= 1;
-  // result |= digitalRead(A1) ? 1 : 0;
-  // result <<= 1;
-  // result |= digitalRead(A0) ? 1 : 0;
-
-  // result <<= 1;
-  // result |= digitalRead(12) ? 1 : 0;
-  // result <<= 1;
-  // result |= digitalRead(11) ? 1 : 0;
-  // result <<= 1;
-  // result |= digitalRead(10) ? 1 : 0;
-  // result <<= 1;
-  // result |= digitalRead(9) ? 1 : 0;
-  // result <<= 1;
-  // result |= digitalRead(8) ? 1 : 0;
 
   // return read signal
   DDRD &= ~USB_RD;
