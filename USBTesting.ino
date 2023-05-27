@@ -36,11 +36,28 @@
 #define GET_IC_VER    0x01
 #define RESET_ALL     0x05
 #define CHECK_EXIST   0x06
+#define SET_USB_MODE  0x15
 #define TEST_CONNECT  0x16
 #define GET_STATUS    0x22
 
+// possible values for GET_STATUS
+#define USB_INT_SUCCESS     0x14
+#define USB_INT_CONNECT     0x15
+#define USB_INT_DISCONNECT  0x16
+#define USB_INT_BUF_OVER    0x17
+
 void usbWriteByte(uint8_t byte, bool isData) {
-  delayMicroseconds(2);
+  // needed to space commands out
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+
   if (isData) {
     // send data
     DDRD |= USB_A0;
@@ -54,33 +71,36 @@ void usbWriteByte(uint8_t byte, bool isData) {
   // DDRC |= 0x07;
   DDRB = (~byte) & 0x1F;
 
-  PORTC &= 0xF8;
-  PORTB = 0;
-
-  delayMicroseconds(2);
-
   // trigger write
   DDRD |= USB_WR;
-  asm volatile ("nop");
-  asm volatile ("nop");
-  asm volatile ("nop");
-  asm volatile ("nop");
   DDRD &= ~USB_WR;
+  // needed to allow USB chip to finish reading
   asm volatile ("nop");
   asm volatile ("nop");
   asm volatile ("nop");
   asm volatile ("nop");
 
-  // reconfigure inputs
-  PORTB = 0;
-  PORTC &= 0xFB;
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
 
   DDRB = 0x00;
   DDRC &= 0xF8;
 }
 
 uint8_t usbReadByte() {
-  delayMicroseconds(2);
+  // needed to space commands out
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+
   // configure the data line to be input pins and configure USB_A0 to read
   DDRD |= USB_A0;
 
@@ -89,16 +109,44 @@ uint8_t usbReadByte() {
 
   // trigger read
   DDRD |= USB_RD;
-  
-  delayMicroseconds(2);
+  // needed to let inputs stabilize
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
+  asm volatile ("nop");
 
   // read data
   uint8_t result = (PINB & 0x1F) | ((PINC & 0x07) << 5);
 
-  // return read signal
+  // turn off read signal
   DDRD &= ~USB_RD;
 
   return result;
+}
+
+enum USBMode {
+  USBModeIdle = 0x05,
+  USBModeReset = 0x07,
+  USBModeActive = 0x06,
+};
+
+#define MAX_WAIT_TIME 100
+
+uint8_t waitForInterrupt() {
+  unsigned long startTime = millis();
+  while ((PIND & USB_INT)) {
+    if (millis() - startTime > MAX_WAIT_TIME) {
+      return 0;
+    }
+  }
+
+  usbWriteByte(GET_STATUS, false);
+  return usbReadByte();
+}
+
+void setUSBMode(uint8_t mode) {
+  usbWriteByte(SET_USB_MODE, false);
+  usbWriteByte(mode, true);
 }
 
 char gHexCharacter[] = {
@@ -125,6 +173,23 @@ void printBinary(uint8_t value) {
   }
 }
 
+bool handleConnect() {
+  setUSBMode(USBModeReset);
+  delay(40);
+  setUSBMode(USBModeActive);
+
+  uint8_t resetResult = waitForInterrupt();
+  Serial.write("setUSBMode(USBModeActive): 0x");
+  printHex(resetResult);
+  Serial.write("\n");
+
+  return resetResult == USB_INT_SUCCESS;
+}
+
+void handleDisconnect() {
+  setUSBMode(USBModeIdle);
+}
+
 void setup() {
   pinMode(2, INPUT); // N64
   pinMode(3, INPUT); // USB-INT
@@ -145,12 +210,12 @@ void setup() {
 
   Serial.begin(9600);
 
-  usbWriteByte(RESET_ALL, false);
-  delay(40);
   usbWriteByte(GET_IC_VER, false);
   Serial.write("GET_IC_VER: 0x");
   printHex(usbReadByte());
   Serial.write("\n");
+
+  setUSBMode(USBModeIdle);
 }
 
 uint8_t testConnectId = 0;
@@ -158,25 +223,37 @@ uint8_t testConnectId = 0;
 void loop() {
   if (!(PIND & USB_INT)) {
     usbWriteByte(GET_STATUS, false);
-    Serial.write("GET_STATUS: ");
-    Serial.print(usbReadByte());
+    uint8_t interrupt = usbReadByte();
+
+    Serial.write("GET_STATUS: 0x");
+    printHex(interrupt);
     Serial.write("\n");
+
+    switch (interrupt & 0x1F) {
+      case USB_INT_CONNECT:
+        handleConnect();
+        break;
+      case USB_INT_DISCONNECT:
+        handleDisconnect();
+        break;
+    }
   }
 
   usbWriteByte(CHECK_EXIST, false);
   usbWriteByte(testConnectId, true);
-  Serial.write("CHECK_EXIST: 0b");
-  printBinary(testConnectId);
-  Serial.write(" -> 0b");
-  printBinary(usbReadByte());
-  Serial.write("\n");
+  uint8_t result = usbReadByte();
+
+  if (result != (uint8_t)~testConnectId) {
+    Serial.write("CHECK_EXIST: 0x");
+    printHex(testConnectId);
+    Serial.write(" -> 0x");
+    printHex(result);
+    Serial.write("\n");
+
+    delay(1000);
+  }
 
   ++testConnectId;
 
-  // usbWriteByte(GET_IC_VER, false);
-  // Serial.write("GET_IC_VER: ");
-  // Serial.print(usbReadByte());
-  // Serial.write("\n");
-
-  delay(500);
+  delay(10);
 }
