@@ -1,4 +1,7 @@
 
+#include "descriptor_parser.h"
+#include "usb_transfer.h"
+
 // PORTB
 //     0 USB-D0 - input
 //     1 USB-D1 - input
@@ -36,15 +39,54 @@
 #define GET_IC_VER    0x01
 #define RESET_ALL     0x05
 #define CHECK_EXIST   0x06
+#define SET_USB_ADDR  0x13
 #define SET_USB_MODE  0x15
 #define TEST_CONNECT  0x16
 #define GET_STATUS    0x22
+#define RD_USB_DATA0  0x27
+#define RD_USB_DATA   0x28
+#define WR_USB_DATA7  0x2B
+#define SET_ADDRESS   0x45
+#define GET_DESCR     0x46
+#define ISSUE_TKN_X   0x4E
+#define ISSUE_TOKEN   0x4F
+
 
 // possible values for GET_STATUS
 #define USB_INT_SUCCESS     0x14
 #define USB_INT_CONNECT     0x15
 #define USB_INT_DISCONNECT  0x16
 #define USB_INT_BUF_OVER    0x17
+
+#define DEF_USB_PID_SETUP   0xD
+#define DEF_USB_PID_OUT     0x1
+#define DEF_USB_PID_IN      0x9
+
+#define DEBUG     1
+
+char gHexCharacter[] = {
+  '0', '1', '2', '3',
+  '4', '5', '6', '7',
+  '8', '9', 'A', 'B',
+  'C', 'D', 'E', 'F',
+};
+
+void printHex(uint8_t value) {
+  Serial.write(gHexCharacter[value >> 4]);
+  Serial.write(gHexCharacter[value & 0xF]);
+}
+
+void printBinary(uint8_t value) {
+  for (uint8_t i = 0; i < 8; ++i) {
+    if (value & 0x80) {
+      Serial.write('1');
+    } else {
+      Serial.write('0');
+    }
+
+    value <<= 1;
+  }
+}
 
 void usbWriteByte(uint8_t byte, bool isData) {
   // needed to space commands out
@@ -130,6 +172,17 @@ enum USBMode {
   USBModeActive = 0x06,
 };
 
+uint8_t usbReadBuffer(uint8_t* buffer) {
+  usbWriteByte(RD_USB_DATA, false);
+  uint8_t result = usbReadByte();
+
+  for (uint8_t i = 0; i < result; ++i) {
+    buffer[i] = usbReadByte();
+  }
+
+  return result;
+}
+
 #define MAX_WAIT_TIME 100
 
 uint8_t waitForInterrupt() {
@@ -144,33 +197,181 @@ uint8_t waitForInterrupt() {
   return usbReadByte();
 }
 
+bool issueToken(uint8_t endpoint, uint8_t packetType, bool oddParity) {
+  usbWriteByte(ISSUE_TKN_X, false);
+  usbWriteByte(oddParity ? 0x80 : 0x00, true);
+  usbWriteByte((endpoint << 4) | packetType, true);
+  return waitForInterrupt() == USB_INT_SUCCESS;
+}
+
+#define READ_PACKET_SIZE    8
+
+bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, void* data, PacketHandler packetHandler) {
+  usbWriteByte(WR_USB_DATA7, false);
+  // number of bytes coming
+  usbWriteByte(8, true);
+  usbWriteByte(bmRequestType, true);
+  usbWriteByte(bRequest, true);
+  usbWriteByte(((uint8_t*)&wValue)[0], true);
+  usbWriteByte(((uint8_t*)&wValue)[1], true);
+  usbWriteByte(((uint8_t*)&wIndex)[0], true);
+  usbWriteByte(((uint8_t*)&wIndex)[1], true);
+  usbWriteByte(((uint8_t*)&wLength)[0], true);
+  usbWriteByte(((uint8_t*)&wLength)[1], true);
+
+  bool oddParity = true;
+  char buffer[READ_PACKET_SIZE];
+
+  if (!issueToken(endpoint, DEF_USB_PID_SETUP, false)) {
+    return false;
+  }
+
+  while (wLength > 0) {
+    if (!issueToken(endpoint, DEF_USB_PID_IN, oddParity)) {
+      return false;
+    }
+    
+    oddParity = !oddParity;
+
+    usbWriteByte(RD_USB_DATA, false);
+
+    uint8_t packetSize = usbReadByte();
+    uint8_t curr = 0;
+
+    wLength -= packetSize;
+
+    while (packetSize > 0) {
+      buffer[curr] = usbReadByte();
+      ++curr;
+      --packetSize;
+
+      if (curr == READ_PACKET_SIZE) {
+        packetHandler(data, buffer, curr);
+        curr = 0;
+      }
+    }
+    
+    if (curr) {
+      packetHandler(data, buffer, curr);
+    }
+  }
+
+  oddParity = !oddParity;
+
+  usbWriteByte(WR_USB_DATA7, false);
+  usbWriteByte(0, true);
+
+  return issueToken(endpoint, DEF_USB_PID_OUT, oddParity);
+}
+
 void setUSBMode(uint8_t mode) {
   usbWriteByte(SET_USB_MODE, false);
   usbWriteByte(mode, true);
 }
 
-char gHexCharacter[] = {
-  '0', '1', '2', '3',
-  '4', '5', '6', '7',
-  '8', '9', 'A', 'B',
-  'C', 'D', 'E', 'F',
-};
+uint8_t gNextAddress = 1;
+uint8_t gReadBuffer[64];
 
-void printHex(uint8_t value) {
-  Serial.write(gHexCharacter[value >> 4]);
-  Serial.write(gHexCharacter[value & 0xF]);
+void debugPrintBuffer(uint8_t bytes) {
+  for (uint8_t i = 0; i < bytes; ++i) {
+    printHex(gReadBuffer[i]);
+
+    if ((i & 0x7) == 0x7) {
+      Serial.write('\n');
+    } else {
+      Serial.write(' ');
+    }
+  }
+
+  Serial.write('\n');
 }
 
-void printBinary(uint8_t value) {
-  for (uint8_t i = 0; i < 8; ++i) {
-    if (value & 0x80) {
-      Serial.write('1');
-    } else {
-      Serial.write('0');
-    }
+uint8_t findNextUSBAddress() {
+  uint8_t result = gNextAddress;
+  ++gNextAddress;
+  return result;
+}
 
-    value <<= 1;
+bool setupConnectedUSBDevice() {
+#if DEBUG
+  Serial.print("Setting target address to 0\n");
+#endif
+  usbWriteByte(SET_USB_ADDR, false);
+  usbWriteByte(0x00, true);
+
+  uint8_t address = findNextUSBAddress();
+#if DEBUG
+  Serial.print("Configuring target to have address ");
+  Serial.print(address);
+  Serial.print("\n");
+#endif
+  usbWriteByte(SET_ADDRESS, false);
+  usbWriteByte(address, true);
+
+  if (waitForInterrupt() != USB_INT_SUCCESS) {
+#if DEBUG
+    Serial.print("Failed to configure device address\n");
+#endif
+    return false;
   }
+
+#if DEBUG
+  Serial.print("Configured device address\n");
+  Serial.print("Getting device descriptor\n");
+#endif
+
+  usbWriteByte(SET_USB_ADDR, false);
+  usbWriteByte(address, true);
+
+  usbWriteByte(GET_DESCR, false);
+  usbWriteByte(1, true);
+
+  uint8_t getDescrResult = waitForInterrupt();
+
+  if (getDescrResult != USB_INT_SUCCESS) {
+#if DEBUG
+    Serial.print("Failed to get device descriptor with error 0x");
+    printHex(getDescrResult);
+    Serial.print("\n");
+#endif
+    return false;
+  }
+
+  uint8_t descriptorSize = usbReadBuffer(gReadBuffer);
+
+#if DEBUG
+  Serial.print("Got descriptor of size ");
+  Serial.print(descriptorSize);
+  Serial.print("\n");
+  debugPrintBuffer(descriptorSize);
+
+  Serial.print("Getting configuration descriptor\n");
+#endif
+
+  usbWriteByte(GET_DESCR, false);
+  usbWriteByte(2, true);
+
+  getDescrResult = waitForInterrupt();
+
+  if (getDescrResult != USB_INT_SUCCESS) {
+#if DEBUG
+    Serial.print("Failed to get configuration descriptor with error 0x");
+    printHex(getDescrResult);
+    Serial.print("\n");
+#endif
+    return false;
+  }
+
+  descriptorSize = usbReadBuffer(gReadBuffer);
+
+#if DEBUG
+  Serial.print("Got descriptor of size ");
+  Serial.print(descriptorSize);
+  Serial.print("\n");
+  debugPrintBuffer(descriptorSize);
+#endif
+
+  return true;
 }
 
 bool handleConnect() {
@@ -179,11 +380,21 @@ bool handleConnect() {
   setUSBMode(USBModeActive);
 
   uint8_t resetResult = waitForInterrupt();
+
+#if DEBUG
   Serial.write("setUSBMode(USBModeActive): 0x");
   printHex(resetResult);
   Serial.write("\n");
+#endif
 
-  return resetResult == USB_INT_SUCCESS;
+  if (resetResult != USB_INT_CONNECT) {
+#if DEBUG
+  Serial.write("Failed to setup USB mode\n");
+#endif
+    return false;
+  }
+
+  return setupConnectedUSBDevice();
 }
 
 void handleDisconnect() {
