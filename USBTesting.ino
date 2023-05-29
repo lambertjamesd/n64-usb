@@ -62,6 +62,8 @@
 #define DEF_USB_PID_OUT     0x1
 #define DEF_USB_PID_IN      0x9
 
+#define GET_DESCRIPTOR      0x06
+
 #define DEBUG     1
 
 char gHexCharacter[] = {
@@ -207,6 +209,11 @@ bool issueToken(uint8_t endpoint, uint8_t packetType, bool oddParity) {
 #define READ_PACKET_SIZE    8
 
 bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, void* data, PacketHandler packetHandler) {
+#if DEBUG
+  Serial.print("Writing setup packet\n");
+#endif
+
+
   usbWriteByte(WR_USB_DATA7, false);
   // number of bytes coming
   usbWriteByte(8, true);
@@ -222,12 +229,23 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
   bool oddParity = true;
   char buffer[READ_PACKET_SIZE];
 
+#if DEBUG
+  Serial.print("Issuing token\n");
+#endif
+
   if (!issueToken(endpoint, DEF_USB_PID_SETUP, false)) {
     return false;
   }
 
+#if DEBUG
+  Serial.print("Reading data\n");
+#endif
+
   while (wLength > 0) {
     if (!issueToken(endpoint, DEF_USB_PID_IN, oddParity)) {
+#if DEBUG
+  Serial.print("Failed to get input data\n");
+#endif
       return false;
     }
     
@@ -238,6 +256,12 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
     uint8_t packetSize = usbReadByte();
     uint8_t curr = 0;
 
+#if DEBUG
+  Serial.print("Read packet of size ");
+  Serial.print(packetSize);
+  Serial.print("\n");
+#endif
+
     wLength -= packetSize;
 
     while (packetSize > 0) {
@@ -246,12 +270,24 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
       --packetSize;
 
       if (curr == READ_PACKET_SIZE) {
+#if DEBUG
+        Serial.print("Handling packet of size ");
+        Serial.print(curr);
+        Serial.print("\n");
+        debugPrintBuffer((uint8_t*)buffer, curr);
+#endif
         packetHandler(data, buffer, curr);
         curr = 0;
       }
     }
     
     if (curr) {
+#if DEBUG
+      Serial.print("Handling packet of size ");
+      Serial.print(curr);
+      Serial.print("\n");
+      debugPrintBuffer((uint8_t*)buffer, curr);
+#endif
       packetHandler(data, buffer, curr);
     }
   }
@@ -272,9 +308,9 @@ void setUSBMode(uint8_t mode) {
 uint8_t gNextAddress = 1;
 uint8_t gReadBuffer[64];
 
-void debugPrintBuffer(uint8_t bytes) {
+void debugPrintBuffer(uint8_t* data, uint8_t bytes) {
   for (uint8_t i = 0; i < bytes; ++i) {
-    printHex(gReadBuffer[i]);
+    printHex(data[i]);
 
     if ((i & 0x7) == 0x7) {
       Serial.write('\n');
@@ -290,6 +326,16 @@ uint8_t findNextUSBAddress() {
   uint8_t result = gNextAddress;
   ++gNextAddress;
   return result;
+}
+
+void printReadControl(void* data, char* buffer, uint8_t packetSize) {
+#if DEBUG
+  Serial.print("handling packet of size ");
+  Serial.print(packetSize);
+  Serial.print("\n");
+#endif
+
+  debugPrintBuffer((uint8_t*)data, data);
 }
 
 bool setupConnectedUSBDevice() {
@@ -343,7 +389,7 @@ bool setupConnectedUSBDevice() {
   Serial.print("Got descriptor of size ");
   Serial.print(descriptorSize);
   Serial.print("\n");
-  debugPrintBuffer(descriptorSize);
+  debugPrintBuffer(gReadBuffer, descriptorSize);
 
   Serial.print("Getting configuration descriptor\n");
 #endif
@@ -368,10 +414,12 @@ bool setupConnectedUSBDevice() {
   Serial.print("Got descriptor of size ");
   Serial.print(descriptorSize);
   Serial.print("\n");
-  debugPrintBuffer(descriptorSize);
+  debugPrintBuffer(gReadBuffer, descriptorSize);
+
+  Serial.print("Trying custom GET_DESCRIPTOR\n");
 #endif
 
-  return true;
+  return readControlTransfer(0, 0x80, GET_DESCRIPTOR, 0x0100, 0x0000, 0x0012, NULL, printReadControl);
 }
 
 bool handleConnect() {
