@@ -48,6 +48,7 @@
 #define WR_USB_DATA7  0x2B
 #define SET_ADDRESS   0x45
 #define GET_DESCR     0x46
+#define SET_CONFIG    0x49
 #define ISSUE_TKN_X   0x4E
 #define ISSUE_TOKEN   0x4F
 
@@ -63,6 +64,14 @@
 #define DEF_USB_PID_IN      0x9
 
 #define GET_DESCRIPTOR      0x06
+
+// HID Control transfer types
+#define GET_REPORT          0x01
+#define GET_IDLE            0x02
+#define GET_PROTOCOL        0x03
+#define SET_REPORT          0x09
+#define SET_IDLE            0x0A 
+#define SET_PROTOCOL        0x0B 
 
 #define DEBUG     1
 
@@ -209,10 +218,35 @@ bool issueToken(uint8_t endpoint, uint8_t packetType, bool oddParity) {
 #define READ_PACKET_SIZE    8
 
 bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, void* data, PacketHandler packetHandler) {
+  bmRequestType |= REQUEST_DIRECTION_D2H;
+
 #if DEBUG
   Serial.print("Writing setup packet\n");
-#endif
 
+  Serial.print("endpoint = ");
+  Serial.print(endpoint);
+  Serial.print("\n");
+
+  Serial.print("bmRequestType = ");
+  printBinary(bmRequestType);
+  Serial.print("\n");
+
+  Serial.print("bRequest = ");
+  printHex(bRequest);
+  Serial.print("\n");
+
+  Serial.print("wValue = ");
+  Serial.print(wValue);
+  Serial.print("\n");
+
+  Serial.print("wIndex = ");
+  Serial.print(wIndex);
+  Serial.print("\n");
+
+  Serial.print("wLength = ");
+  Serial.print(wLength);
+  Serial.print("\n");
+#endif
 
   usbWriteByte(WR_USB_DATA7, false);
   // number of bytes coming
@@ -241,6 +275,8 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
   Serial.print("Reading data\n");
 #endif
 
+  uint8_t offset = 0;
+
   while (wLength > 0) {
     if (!issueToken(endpoint, DEF_USB_PID_IN, oddParity)) {
 #if DEBUG
@@ -256,12 +292,6 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
     uint8_t packetSize = usbReadByte();
     uint8_t curr = 0;
 
-#if DEBUG
-  Serial.print("Read packet of size ");
-  Serial.print(packetSize);
-  Serial.print("\n");
-#endif
-
     wLength -= packetSize;
 
     while (packetSize > 0) {
@@ -270,25 +300,14 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
       --packetSize;
 
       if (curr == READ_PACKET_SIZE) {
-#if DEBUG
-        Serial.print("Handling packet of size ");
-        Serial.print(curr);
-        Serial.print("\n");
-        debugPrintBuffer((uint8_t*)buffer, curr);
-#endif
-        packetHandler(data, buffer, curr);
+        packetHandler(data, buffer, curr, offset);
+        offset += curr;
         curr = 0;
       }
     }
     
     if (curr) {
-#if DEBUG
-      Serial.print("Handling packet of size ");
-      Serial.print(curr);
-      Serial.print("\n");
-      debugPrintBuffer((uint8_t*)buffer, curr);
-#endif
-      packetHandler(data, buffer, curr);
+      packetHandler(data, buffer, curr, offset);
     }
   }
 
@@ -319,7 +338,9 @@ void debugPrintBuffer(uint8_t* data, uint8_t bytes) {
     }
   }
 
-  Serial.write('\n');
+  if ((bytes & 0x7) != 0) {
+    Serial.write('\n');
+  }
 }
 
 uint8_t findNextUSBAddress() {
@@ -329,13 +350,7 @@ uint8_t findNextUSBAddress() {
 }
 
 void printReadControl(void* data, char* buffer, uint8_t packetSize) {
-#if DEBUG
-  Serial.print("handling packet of size ");
-  Serial.print(packetSize);
-  Serial.print("\n");
-#endif
-
-  debugPrintBuffer((uint8_t*)data, data);
+  debugPrintBuffer((uint8_t*)buffer, packetSize);
 }
 
 bool setupConnectedUSBDevice() {
@@ -419,7 +434,49 @@ bool setupConnectedUSBDevice() {
   Serial.print("Trying custom GET_DESCRIPTOR\n");
 #endif
 
-  return readControlTransfer(0, 0x80, GET_DESCRIPTOR, 0x0100, 0x0000, 0x0012, NULL, printReadControl);
+  if (!readControlTransfer(0, 0x80, GET_DESCRIPTOR, 0x0100, 0x0000, 0x0012, NULL, &printReadControl)) {
+    return false;
+  }
+
+  Serial.print("Configuring device\n");
+
+  usbWriteByte(SET_CONFIG, false);
+  usbWriteByte(1, true);
+
+  getDescrResult = waitForInterrupt();
+
+  if (getDescrResult != USB_INT_SUCCESS) {
+#if DEBUG
+    Serial.print("Failed to set config 0x");
+    printHex(getDescrResult);
+    Serial.print("\n");
+#endif
+    return false;
+  }
+
+  if (!readControlTransfer(0, 0x81, GET_DESCRIPTOR, 0x2200, 0x0000, 59, NULL, &printReadControl)) {
+    return false;
+  }
+
+  struct HidInfo hidInfo;
+
+  if (getHIDInfo(&hidInfo)) {
+#if DEBUG
+    Serial.print("Found boot mouse at ");
+    printHex(hidInfo.bootMouseConfiguration);
+    Serial.print(", ");
+    printHex(hidInfo.bootMouseInterface);
+    Serial.print(", ");
+    printHex(hidInfo.bootMouseEndpoint);
+    Serial.print("\n");
+#endif
+  } else {
+    Serial.print("Could not find boot mouse ");
+  }
+
+  // writeControlTransfer(0, REQUEST_TYPE_CLASS | REQUEST_RECIPIENT_INTERFACE, SET_PROTOCOL, SET_PROTOCOL_BOOT, interfaceIndex, 0);
+
+  return true;
 }
 
 bool handleConnect() {

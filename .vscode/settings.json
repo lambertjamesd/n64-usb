@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.avr": "avr",
+        "descriptor_parser.h": "c",
+        "memory.h": "c"
+    }
+}
