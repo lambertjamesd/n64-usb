@@ -39,6 +39,7 @@
 #define GET_IC_VER    0x01
 #define RESET_ALL     0x05
 #define CHECK_EXIST   0x06
+#define SET_RETRY     0x0B
 #define SET_USB_ADDR  0x13
 #define SET_USB_MODE  0x15
 #define TEST_CONNECT  0x16
@@ -345,6 +346,13 @@ void setUSBMode(uint8_t mode) {
   usbWriteByte(mode, true);
 }
 
+void setRetry(bool shouldRetry) {
+  usbWriteByte(SET_RETRY, false);
+  usbWriteByte(0x25, true);
+  usbWriteByte(shouldRetry ? 0x85 : 0x00, true);
+
+}
+
 uint8_t gNextAddress = 1;
 uint8_t gReadBuffer[64];
 
@@ -493,6 +501,9 @@ void setup() {
   Serial.write("\n");
 
   setUSBMode(USBModeIdle);  
+
+  // turn retries off for polling
+  setRetry(false);
 }
 
 unsigned long nextPoll = 0;
@@ -500,6 +511,9 @@ bool gOddPollParity = false;
 
 void loop() {
   if (!(PIND & USB_INT)) {
+    // turn retries back on for important stuff
+    setRetry(true);
+
     usbWriteByte(GET_STATUS, false);
     uint8_t interrupt = usbReadByte();
 
@@ -515,12 +529,15 @@ void loop() {
         handleDisconnect();
         break;
     }
+
+    // turn retries off for polling
+    setRetry(false);
   }
 
   unsigned long currentTime = millis();
   char mouseData[8];
 
-  if (gHid.bootMouseEndpoint != 0 && currentTime > nextPoll) {
+  if (gHid.bootMouseEndpoint != 0) {
     if(issueTokenRead(gHid.bootMouseEndpoint & 0x0F, DEF_USB_PID_IN, gOddPollParity)) {
       if (usbReadBuffer(mouseData) > 8) {
         Serial.write("Overflow!\n");
@@ -531,6 +548,6 @@ void loop() {
 
     gOddPollParity = !gOddPollParity;
 
-    nextPoll = currentTime + 10;
+    nextPoll = currentTime + 1;
   }
 }
