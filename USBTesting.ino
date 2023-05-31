@@ -213,34 +213,6 @@ bool issueToken(uint8_t endpoint, uint8_t packetType, bool oddParity) {
 bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, void* data, PacketHandler packetHandler) {
   bmRequestType |= REQUEST_DIRECTION_D2H;
 
-#if DEBUG
-  Serial.print("Writing setup packet\n");
-
-  Serial.print("endpoint = ");
-  Serial.print(endpoint);
-  Serial.print("\n");
-
-  Serial.print("bmRequestType = ");
-  printBinary(bmRequestType);
-  Serial.print("\n");
-
-  Serial.print("bRequest = ");
-  printHex(bRequest);
-  Serial.print("\n");
-
-  Serial.print("wValue = ");
-  Serial.print(wValue);
-  Serial.print("\n");
-
-  Serial.print("wIndex = ");
-  Serial.print(wIndex);
-  Serial.print("\n");
-
-  Serial.print("wLength = ");
-  Serial.print(wLength);
-  Serial.print("\n");
-#endif
-
   usbWriteByte(WR_USB_DATA7, false);
   // number of bytes coming
   usbWriteByte(8, true);
@@ -344,10 +316,6 @@ uint8_t findNextUSBAddress() {
   return result;
 }
 
-void printReadControl(void* data, char* buffer, uint8_t packetSize) {
-  debugPrintBuffer((uint8_t*)buffer, packetSize);
-}
-
 bool setupConnectedUSBDevice() {
 #if DEBUG
   Serial.print("Setting target address to 0\n");
@@ -373,101 +341,28 @@ bool setupConnectedUSBDevice() {
 
 #if DEBUG
   Serial.print("Configured device address\n");
-  Serial.print("Getting device descriptor\n");
+  Serial.print("Getting boot mouse\n");
 #endif
 
   usbWriteByte(SET_USB_ADDR, false);
   usbWriteByte(address, true);
 
-  usbWriteByte(GET_DESCR, false);
-  usbWriteByte(1, true);
-
-  uint8_t getDescrResult = waitForInterrupt();
-
-  if (getDescrResult != USB_INT_SUCCESS) {
-#if DEBUG
-    Serial.print("Failed to get device descriptor with error 0x");
-    printHex(getDescrResult);
-    Serial.print("\n");
-#endif
-    return false;
-  }
-
-  uint8_t descriptorSize = usbReadBuffer(gReadBuffer);
-
-#if DEBUG
-  Serial.print("Got descriptor of size ");
-  Serial.print(descriptorSize);
-  Serial.print("\n");
-  debugPrintBuffer(gReadBuffer, descriptorSize);
-
-  Serial.print("Getting configuration descriptor\n");
-#endif
-
-  usbWriteByte(GET_DESCR, false);
-  usbWriteByte(2, true);
-
-  getDescrResult = waitForInterrupt();
-
-  if (getDescrResult != USB_INT_SUCCESS) {
-#if DEBUG
-    Serial.print("Failed to get configuration descriptor with error 0x");
-    printHex(getDescrResult);
-    Serial.print("\n");
-#endif
-    return false;
-  }
-
-  descriptorSize = usbReadBuffer(gReadBuffer);
-
-#if DEBUG
-  Serial.print("Got descriptor of size ");
-  Serial.print(descriptorSize);
-  Serial.print("\n");
-  debugPrintBuffer(gReadBuffer, descriptorSize);
-
-  Serial.print("Trying custom GET_DESCRIPTOR\n");
-#endif
-
-  if (!readControlTransfer(0, 0x80, GET_DESCRIPTOR, 0x0100, 0x0000, 0x0012, NULL, &printReadControl)) {
-    return false;
-  }
-
-  Serial.print("Configuring device\n");
-
-  usbWriteByte(SET_CONFIG, false);
-  usbWriteByte(1, true);
-
-  getDescrResult = waitForInterrupt();
-
-  if (getDescrResult != USB_INT_SUCCESS) {
-#if DEBUG
-    Serial.print("Failed to set config 0x");
-    printHex(getDescrResult);
-    Serial.print("\n");
-#endif
-    return false;
-  }
-
-  if (!readControlTransfer(0, 0x81, GET_DESCRIPTOR, 0x2200, 0x0000, 59, NULL, &printReadControl)) {
-    return false;
-  }
-
   struct HidInfo hidInfo;
 
-  if (getHIDInfo(&hidInfo)) {
-#if DEBUG
-    Serial.print("Found boot mouse at ");
-    printHex(hidInfo.bootMouseConfiguration);
-    Serial.print(", ");
-    printHex(hidInfo.bootMouseInterface);
-    Serial.print(", ");
-    printHex(hidInfo.bootMouseEndpoint);
-    Serial.print("\n");
-#endif
-  } else {
+  if (!getHIDInfo(&hidInfo)) {
     Serial.print("Could not find boot mouse ");
+    return false;
   }
+
+#if DEBUG
+  Serial.print("Found boot mouse at ");
+  printHex(hidInfo.bootMouseConfiguration);
+  Serial.print(", ");
+  printHex(hidInfo.bootMouseInterface);
+  Serial.print(", ");
+  printHex(hidInfo.bootMouseEndpoint);
+  Serial.print("\n");
+#endif
 
   // writeControlTransfer(0, REQUEST_TYPE_CLASS | REQUEST_RECIPIENT_INTERFACE, SET_PROTOCOL, SET_PROTOCOL_BOOT, interfaceIndex, 0);
 
