@@ -43,6 +43,7 @@
 #define SET_USB_MODE  0x15
 #define TEST_CONNECT  0x16
 #define GET_STATUS    0x22
+#define UNLOCK_USB    0x23
 #define RD_USB_DATA0  0x27
 #define RD_USB_DATA   0x28
 #define WR_USB_DATA7  0x2B
@@ -144,15 +145,7 @@ void usbWriteByte(uint8_t byte, bool isData) {
 
 uint8_t usbReadByte() {
   // needed to space commands out
-  asm volatile ("nop");
-  asm volatile ("nop");
-  asm volatile ("nop");
-  asm volatile ("nop");
-
-  asm volatile ("nop");
-  asm volatile ("nop");
-  asm volatile ("nop");
-  asm volatile ("nop");
+  delayMicroseconds(3);
 
   // configure the data line to be input pins and configure USB_A0 to read
   DDRD |= USB_A0;
@@ -287,7 +280,7 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
     
     oddParity = !oddParity;
 
-    usbWriteByte(RD_USB_DATA, false);
+    usbWriteByte(RD_USB_DATA0, false);
 
     uint8_t packetSize = usbReadByte();
     uint8_t curr = 0;
@@ -305,6 +298,8 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
         curr = 0;
       }
     }
+
+    usbWriteByte(UNLOCK_USB, false);
     
     if (curr) {
       packetHandler(data, buffer, curr, offset);
