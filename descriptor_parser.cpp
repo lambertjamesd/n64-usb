@@ -53,53 +53,53 @@ void configParserStep(struct ConfigParser* parser, uint8_t next) {
         return;
     }
 
-    // switch (parser->state) {
-    //     case ConfigParserStateFindingInterfaceClass:
-    //         if (parser->descType == DESC_TYPE_INTERFACE && 
-    //             parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceNumber)) {
-    //             parser->info->bootMouseInterface = next;
+    switch (parser->state) {
+        case ConfigParserStateFindingInterfaceClass:
+            if (parser->descType == DESC_TYPE_INTERFACE && 
+                parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceNumber)) {
+                parser->info->bootMouseInterface = next;
 
-    //             Serial.print("Using interface");
-    //             Serial.print(next);
-    //             Serial.print("\n");
-    //         } else if (parser->descType == DESC_TYPE_INTERFACE && 
-    //             parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceClass) &&
-    //             next == DEVICE_CLASS_HID) {
-    //             parser->state = ConfigParserStateFindingInterfaceSubClass;
-    //             Serial.print("Correct class\n");
-    //         }
-    //         break;
-    //     case ConfigParserStateFindingInterfaceSubClass:
-    //         if (parser->descType == DESC_TYPE_INTERFACE &&
-    //             parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceSubClass)) {
-    //             if (next == HID_SUBCLASS_BOOT) {
-    //                 parser->state = ConfigParserStateFindingInterfaceProtocol;
-    //                 Serial.print("Correct subclass\n");
-    //             } else {
-    //                 parser->state = ConfigParserStateFindingInterfaceClass;
-    //                 Serial.print("Wrong subclass\n");
-    //             }
-    //         }
-    //         break;
-    //     case ConfigParserStateFindingInterfaceProtocol:
-    //         if (parser->descType == DESC_TYPE_INTERFACE &&
-    //             parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceProtocol)) {
-    //             if (next == HID_PROTOCOL_MOUSE) {
-    //                 parser->state = ConfigParserStateFindingEndpoint;
-    //                 Serial.print("Correct protocol\n");
-    //             } else {
-    //                 parser->state = ConfigParserStateFindingInterfaceClass;
-    //                 Serial.print("Wrong protocol\n");
-    //             }
-    //         }
-    //         break;
-    //     case ConfigParserStateFindingEndpoint:
-    //         if (parser->descType == DESC_TYPE_ENDPOINT &&
-    //             parser->descOffset == offsetof(struct EndpointDescriptor, bEndpointAddress)) {
-    //             parser->info->bootMouseEndpoint = next;
-    //             parser->state = ConfigParserStateDone;
-    //         }
-    // }
+                Serial.print("Using interface");
+                Serial.print(next);
+                Serial.print("\n");
+            } else if (parser->descType == DESC_TYPE_INTERFACE && 
+                parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceClass) &&
+                next == DEVICE_CLASS_HID) {
+                parser->state = ConfigParserStateFindingInterfaceSubClass;
+                Serial.print("Correct class\n");
+            }
+            break;
+        case ConfigParserStateFindingInterfaceSubClass:
+            if (parser->descType == DESC_TYPE_INTERFACE &&
+                parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceSubClass)) {
+                if (next == HID_SUBCLASS_BOOT) {
+                    parser->state = ConfigParserStateFindingInterfaceProtocol;
+                    Serial.print("Correct subclass\n");
+                } else {
+                    parser->state = ConfigParserStateFindingInterfaceClass;
+                    Serial.print("Wrong subclass\n");
+                }
+            }
+            break;
+        case ConfigParserStateFindingInterfaceProtocol:
+            if (parser->descType == DESC_TYPE_INTERFACE &&
+                parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceProtocol)) {
+                if (next == HID_PROTOCOL_MOUSE) {
+                    parser->state = ConfigParserStateFindingEndpoint;
+                    Serial.print("Correct protocol\n");
+                } else {
+                    parser->state = ConfigParserStateFindingInterfaceClass;
+                    Serial.print("Wrong protocol\n");
+                }
+            }
+            break;
+        case ConfigParserStateFindingEndpoint:
+            if (parser->descType == DESC_TYPE_ENDPOINT &&
+                parser->descOffset == offsetof(struct EndpointDescriptor, bEndpointAddress)) {
+                parser->info->bootMouseEndpoint = next;
+                parser->state = ConfigParserStateDone;
+            }
+    }
 
     parser->descOffset++;
 
