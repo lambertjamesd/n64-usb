@@ -18,8 +18,11 @@ typedef void (*PacketHandler)(void* data, char* packetData, uint8_t packetSize, 
 #define REQUEST_RECIPIENT_ENDPOINT  0x02
 #define REQUEST_RECIPIENT_OTHER     0x03
 
+// device request types
 #define GET_DESCRIPTOR      0x06
+#define SET_CONFIGURATION   0x09
 
+// interface request types
 #define SET_PROTOCOL        0x0B
 
 #define SET_PROTOCOL_BOOT   0x00

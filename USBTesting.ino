@@ -187,7 +187,7 @@ uint8_t usbReadBuffer(uint8_t* buffer) {
   return result;
 }
 
-#define MAX_WAIT_TIME 100
+#define MAX_WAIT_TIME 10
 
 uint8_t waitForInterrupt() {
   unsigned long startTime = millis();
@@ -205,6 +205,14 @@ bool issueToken(uint8_t endpoint, uint8_t packetType, bool oddParity) {
   usbWriteByte(ISSUE_TKN_X, false);
   usbWriteByte(oddParity ? 0x80 : 0x00, true);
   usbWriteByte((endpoint << 4) | packetType, true);
+  return waitForInterrupt() == USB_INT_SUCCESS;
+}
+
+bool issueTokenRead(uint8_t endpoint, uint8_t packetType, bool oddParity) {
+  usbWriteByte(ISSUE_TKN_X, false);
+  usbWriteByte(oddParity ? 0x40 : 0x00, true);
+  usbWriteByte((endpoint << 4) | packetType, true);
+
   return waitForInterrupt() == USB_INT_SUCCESS;
 }
 
@@ -228,17 +236,9 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
   bool oddParity = true;
   char buffer[READ_PACKET_SIZE];
 
-#if DEBUG
-  Serial.print("Issuing token\n");
-#endif
-
   if (!issueToken(endpoint, DEF_USB_PID_SETUP, false)) {
     return false;
   }
-
-#if DEBUG
-  Serial.print("Reading data\n");
-#endif
 
   uint8_t offset = 0;
 
@@ -278,12 +278,66 @@ bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bReque
     }
   }
 
-  oddParity = !oddParity;
-
   usbWriteByte(WR_USB_DATA7, false);
   usbWriteByte(0, true);
 
   return issueToken(endpoint, DEF_USB_PID_OUT, oddParity);
+}
+
+#define MAX_WRITE_PACKET_SIZE   8
+
+bool writeControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, char* toSend) {
+  usbWriteByte(WR_USB_DATA7, false);
+  // number of bytes coming
+  usbWriteByte(8, true);
+  usbWriteByte(bmRequestType, true);
+  usbWriteByte(bRequest, true);
+  usbWriteByte(((uint8_t*)&wValue)[0], true);
+  usbWriteByte(((uint8_t*)&wValue)[1], true);
+  usbWriteByte(((uint8_t*)&wIndex)[0], true);
+  usbWriteByte(((uint8_t*)&wIndex)[1], true);
+  usbWriteByte(((uint8_t*)&wLength)[0], true);
+  usbWriteByte(((uint8_t*)&wLength)[1], true);
+
+  bool oddParity = true;
+  char buffer[READ_PACKET_SIZE];
+
+  if (!issueToken(endpoint, DEF_USB_PID_SETUP, false)) {
+    return false;
+  }
+
+  uint8_t offset = 0;
+
+  while (wLength > 0) {
+    uint8_t chunkSize = wLength;
+
+    if (chunkSize > MAX_WRITE_PACKET_SIZE) {
+      chunkSize = MAX_WRITE_PACKET_SIZE;
+    }
+
+    usbWriteByte(WR_USB_DATA7, false);
+    // number of bytes coming
+    usbWriteByte(chunkSize, true);
+
+    for (uint8_t i = 0; i < chunkSize; ++i) {
+      usbWriteByte(toSend[offset], true);
+      ++offset;
+    }
+
+    usbWriteByte(WR_USB_DATA7, false);
+    usbWriteByte(0, true);
+
+    if (!issueToken(endpoint, DEF_USB_PID_OUT, oddParity)) {
+#if DEBUG
+  Serial.print("Failed to get input data\n");
+#endif
+      return false;
+    }
+    
+    oddParity = !oddParity;
+  }
+
+  return issueToken(endpoint, DEF_USB_PID_IN, oddParity);
 }
 
 void setUSBMode(uint8_t mode) {
@@ -316,7 +370,7 @@ uint8_t findNextUSBAddress() {
   return result;
 }
 
-bool setupConnectedUSBDevice() {
+bool setupConnectedUSBDevice(struct HidInfo* hidInfo) {
 #if DEBUG
   Serial.print("Setting target address to 0\n");
 #endif
@@ -347,27 +401,35 @@ bool setupConnectedUSBDevice() {
   usbWriteByte(SET_USB_ADDR, false);
   usbWriteByte(address, true);
 
-  struct HidInfo hidInfo;
-
-  if (!getHIDInfo(&hidInfo)) {
+  if (!getHIDInfo(hidInfo)) {
     Serial.print("Could not find boot mouse ");
     return false;
   }
 
 #if DEBUG
   Serial.print("Found boot mouse at ");
-  printHex(hidInfo.bootMouseConfiguration);
+  printHex(hidInfo->bootMouseConfiguration);
   Serial.print(", ");
-  printHex(hidInfo.bootMouseInterface);
+  printHex(hidInfo->bootMouseInterface);
   Serial.print(", ");
-  printHex(hidInfo.bootMouseEndpoint);
+  printHex(hidInfo->bootMouseEndpoint);
   Serial.print("\n");
 #endif
 
-  // writeControlTransfer(0, REQUEST_TYPE_CLASS | REQUEST_RECIPIENT_INTERFACE, SET_PROTOCOL, SET_PROTOCOL_BOOT, interfaceIndex, 0);
+  if (!writeControlTransfer(0, REQUEST_TYPE_STANDARD | REQUEST_RECIPIENT_DEVICE, SET_CONFIGURATION, hidInfo->bootMouseConfiguration, 0, 0, NULL)) {
+    Serial.print("Could not set configuration\n");
+    return false;
+  }
+
+  if (!writeControlTransfer(0, REQUEST_TYPE_CLASS | REQUEST_RECIPIENT_INTERFACE, SET_PROTOCOL, SET_PROTOCOL_BOOT, hidInfo->bootMouseInterface, 0, NULL)) {
+    Serial.print("Could not set protocol\n");
+    return false;
+  }
 
   return true;
 }
+
+struct HidInfo gHid;
 
 bool handleConnect() {
   setUSBMode(USBModeReset);
@@ -389,10 +451,16 @@ bool handleConnect() {
     return false;
   }
 
-  return setupConnectedUSBDevice();
+  if (!setupConnectedUSBDevice(&gHid)) {
+    gHid.bootMouseEndpoint = 0;
+    return false;
+  }
+
+  return true;
 }
 
 void handleDisconnect() {
+  gHid.bootMouseEndpoint = 0;
   setUSBMode(USBModeIdle);
 }
 
@@ -416,15 +484,19 @@ void setup() {
 
   Serial.begin(9600);
 
+  usbWriteByte(RESET_ALL, false);
+  delay(40);
+
   usbWriteByte(GET_IC_VER, false);
   Serial.write("GET_IC_VER: 0x");
   printHex(usbReadByte());
   Serial.write("\n");
 
-  setUSBMode(USBModeIdle);
+  setUSBMode(USBModeIdle);  
 }
 
-uint8_t testConnectId = 0;
+unsigned long nextPoll = 0;
+bool gOddPollParity = false;
 
 void loop() {
   if (!(PIND & USB_INT)) {
@@ -445,21 +517,20 @@ void loop() {
     }
   }
 
-  usbWriteByte(CHECK_EXIST, false);
-  usbWriteByte(testConnectId, true);
-  uint8_t result = usbReadByte();
+  unsigned long currentTime = millis();
+  char mouseData[8];
 
-  if (result != (uint8_t)~testConnectId) {
-    Serial.write("CHECK_EXIST: 0x");
-    printHex(testConnectId);
-    Serial.write(" -> 0x");
-    printHex(result);
-    Serial.write("\n");
+  if (gHid.bootMouseEndpoint != 0 && currentTime > nextPoll) {
+    if(issueTokenRead(gHid.bootMouseEndpoint & 0x0F, DEF_USB_PID_IN, gOddPollParity)) {
+      if (usbReadBuffer(mouseData) > 8) {
+        Serial.write("Overflow!\n");
+      }
 
-    delay(1000);
+      debugPrintBuffer(mouseData, 3);
+    }
+
+    gOddPollParity = !gOddPollParity;
+
+    nextPoll = currentTime + 10;
   }
-
-  ++testConnectId;
-
-  delay(10);
 }

@@ -45,12 +45,21 @@ void configParserStep(struct ConfigParser* parser, uint8_t next) {
         return;
     }
 
+    if (parser->state != ConfigParserStateDone) {
+        if (parser->descType == DESC_TYPE_CONFIGURATION &&
+            parser->descOffset == offsetof(struct ConfigurationDescriptor, bConfigurationValue)) {
+            parser->info->bootMouseConfiguration = next;
+        }
+
+        if (parser->descType == DESC_TYPE_INTERFACE && 
+            parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceNumber)) {
+            parser->info->bootMouseInterface = next;
+        }
+    }
+
     switch (parser->state) {
         case ConfigParserStateFindingInterfaceClass:
             if (parser->descType == DESC_TYPE_INTERFACE && 
-                parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceNumber)) {
-                parser->info->bootMouseInterface = next;
-            } else if (parser->descType == DESC_TYPE_INTERFACE && 
                 parser->descOffset == offsetof(struct InterfaceDescriptor, bInterfaceClass) &&
                 next == DEVICE_CLASS_HID) {
                 parser->state = ConfigParserStateFindingInterfaceSubClass;
@@ -162,7 +171,6 @@ bool getHIDInfo(struct HidInfo* result) {
         }
 
         if (result->bootMouseEndpoint != 0) {
-            result->bootMouseConfiguration = configurationIndex;
             return true;
         }
     }
