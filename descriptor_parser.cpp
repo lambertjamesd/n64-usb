@@ -3,6 +3,9 @@
 
 #include <string.h>
 #include <stddef.h>
+#include "debug_print.h"
+
+#include <Arduino.h>
 
 enum ConfigParserState {
     ConfigParserStateFindingInterfaceClass,

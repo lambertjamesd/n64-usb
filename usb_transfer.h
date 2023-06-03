@@ -77,8 +77,6 @@
 #define SET_IDLE            0x0A 
 #define SET_PROTOCOL        0x0B 
 
-#define DEBUG     1
-
 typedef void (*PacketHandler)(void* data, char* packetData, uint8_t packetSize, uint8_t offset);
 
 #define REQUEST_DIRECTION_H2D    0x00
@@ -115,11 +113,13 @@ void usbWriteByte(uint8_t byte, bool isData);
 uint8_t usbReadByte();
 uint8_t usbReadBuffer(uint8_t* buffer);
 bool issueTokenRead(uint8_t endpoint, uint8_t packetType, bool oddParity);
-void printHex(uint8_t);
 uint8_t waitForInterrupt();
 bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, void* data, PacketHandler packetHandler);
 bool writeControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, char* toSend);
 void setUSBMode(uint8_t mode);
 void setRetry(bool shouldRetry);
+
+void printHex(uint8_t);
+void debugPrintBuffer(uint8_t* data, uint8_t bytes);
 
 #endif

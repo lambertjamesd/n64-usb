@@ -2,6 +2,7 @@
 #include "descriptor_parser.h"
 #include "usb_transfer.h"
 #include "usb_hid.h"
+#include "debug_print.h"
 
 struct HidInfo gHid;
 
@@ -27,5 +28,7 @@ void loop() {
   checkUsbInterupts(&gHid);
 
   char mouseData[8];
-  usbPollMouse(&gHid, mouseData);
+  if (usbPollMouse(&gHid, mouseData)) {
+    debugPrintBuffer(mouseData, 3);
+  }
 }

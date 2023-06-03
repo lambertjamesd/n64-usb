@@ -4,6 +4,7 @@
 #include "usb_hid.h"
 #include "usb_transfer.h"
 #include "descriptor_parser.h"
+#include "debug_print.h"
 
 void delayNoTimer(int ms) {
   while (ms) {
@@ -172,12 +173,19 @@ void checkUsbInterupts(struct HidInfo* hidInfo) {
 bool gOddPollParity = false;
 
 bool usbPollMouse(struct HidInfo* hidInfo, char* mouseData) {
-  if (hidInfo->bootMouseEndpoint != 0) {
-    if(issueTokenRead(hidInfo->bootMouseEndpoint & 0x0F, DEF_USB_PID_IN, gOddPollParity)) {
-      if (usbReadBuffer(mouseData) > 8) {
-        Serial.write("Overflow!\n");
-      }
-    }
-    gOddPollParity = !gOddPollParity;
+  if (hidInfo->bootMouseEndpoint == 0) {
+    return false;
   }
+
+  if(!issueTokenRead(hidInfo->bootMouseEndpoint & 0x0F, DEF_USB_PID_IN, gOddPollParity)) {
+    return false;
+  }
+
+  if (usbReadBuffer(mouseData) > 8) {
+    Serial.write("Overflow!\n");
+  }
+  
+  gOddPollParity = !gOddPollParity;
+
+  return true;
 }
