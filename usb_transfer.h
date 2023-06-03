@@ -118,8 +118,8 @@ bool issueTokenRead(uint8_t endpoint, uint8_t packetType, bool oddParity);
 void printHex(uint8_t);
 uint8_t waitForInterrupt();
 bool readControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, void* data, PacketHandler packetHandler);
+bool writeControlTransfer(uint8_t endpoint, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, char* toSend);
 void setUSBMode(uint8_t mode);
-bool setupConnectedUSBDevice(struct HidInfo* hidInfo);
 void setRetry(bool shouldRetry);
 
 #endif
